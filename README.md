@@ -21,9 +21,9 @@ warm disaster-recovery region.
   │   └─ TG health /v1/sys/health   │         │   └─ TG (no active targets yet) │
   │ ECS Fargate: Vault x3 (active)  │         │ ECS Fargate: Vault x0 (warm)    │
   │   Service Connect :8201         │         │   Service Connect :8201         │
-  │ Aurora PostgreSQL (WRITER) ─────┼──repl─▶│ Aurora PostgreSQL (read-only)   │
-  │ KMS MRK (seal, primary) ────────┼──repl─▶│ KMS MRK replica (same key id)   │
-  │ Secrets Manager (db, recovery)──┼──repl─▶│ Secrets Manager (replicas)      │
+  │ Aurora PostgreSQL (WRITER) ─────┼──repl──▶│ Aurora PostgreSQL (read-only)   │
+  │ KMS MRK (seal, primary) ────────┼──repl──▶│ KMS MRK replica (same key id)   │
+  │ Secrets Manager (db, recovery)──┼──repl──▶│ Secrets Manager (replicas)      │
   │ Route53 private zone            │         │ Route53 private zone            │
   └─────────────────────────────────┘         └─────────────────────────────────┘
 ```
