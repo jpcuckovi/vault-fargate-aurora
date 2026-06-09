@@ -1,0 +1,27 @@
+region                    = "us-east-1"
+name_prefix               = "vault-primary"
+global_cluster_identifier = "vault-global"
+dr_region                 = "us-west-2"
+
+vpc_cidr             = "10.10.0.0/16"
+public_subnet_cidrs  = ["10.10.0.0/24", "10.10.1.0/24"]
+private_subnet_cidrs = ["10.10.10.0/24", "10.10.11.0/24"]
+client_ingress_cidrs = ["10.10.0.0/16"]
+
+zone_name      = "vault.internal"
+vault_hostname = "vault.vault.internal"
+
+vault_image         = "hashicorp/vault:2.0.1"
+vault_desired_count = 3
+
+aurora_engine_version = "16.6"
+aurora_instance_class = "db.r6g.large"
+aurora_instance_count = 2
+
+deletion_protection = false # set true in production
+
+tags = {
+  Project = "vault-ha"
+  Region  = "primary"
+  Owner   = "platform"
+}

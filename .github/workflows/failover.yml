@@ -1,0 +1,96 @@
+name: failover
+
+# Promotes the DR region: switch/fail the Aurora global cluster over to the DR
+# secondary, then scale up DR Vault. DR Vault auto-unseals against the now-
+# writable replicated storage using the replica KMS key.
+#
+#   switchover - planned, zero data loss; needs a healthy current primary.
+#   failover   - unplanned (Region 1 outage); minimal possible data loss.
+#
+# The ALB is private, so this workflow stops at "service stable". Verify
+# /v1/sys/health returns 200 from inside the VPC (bastion / SSM).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Promotion mode.
+        type: choice
+        default: switchover
+        options: [switchover, failover]
+      dr_desired_count:
+        description: Vault task count to scale DR up to.
+        type: string
+        default: "3"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: vault-ha-deploy
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "1"
+  DR_DIR: regions/dr
+
+jobs:
+  failover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.DR_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Promote DR
+        env:
+          BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TABLE: ${{ vars.TF_LOCK_TABLE }}
+          BACKEND_REGION: ${{ vars.TF_STATE_BUCKET_REGION }}
+          DR_REGION: ${{ vars.DR_REGION }}
+          MODE: ${{ inputs.mode }}
+          COUNT: ${{ inputs.dr_desired_count }}
+        run: |
+          set -euo pipefail
+          terraform -chdir="$DR_DIR" init -input=false \
+            -backend-config="bucket=$BUCKET" \
+            -backend-config="key=vault-ha/dr/terraform.tfstate" \
+            -backend-config="region=$BACKEND_REGION" \
+            -backend-config="dynamodb_table=$TABLE"
+
+          GLOBAL_ID="$(terraform -chdir="$DR_DIR" output -raw global_cluster_identifier)"
+          TARGET_ID="$(terraform -chdir="$DR_DIR" output -raw aurora_cluster_identifier)"
+          DR_CLUSTER="$(terraform -chdir="$DR_DIR" output -raw ecs_cluster_name)"
+          DR_SERVICE="$(terraform -chdir="$DR_DIR" output -raw vault_service_name)"
+          ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+          TARGET_ARN="arn:aws:rds:${DR_REGION}:${ACCOUNT}:cluster:${TARGET_ID}"
+
+          echo "==> ${MODE} global cluster ${GLOBAL_ID} -> ${TARGET_ARN}"
+          if [ "$MODE" = "switchover" ]; then
+            aws rds switchover-global-cluster \
+              --global-cluster-identifier "$GLOBAL_ID" \
+              --target-db-cluster-identifier "$TARGET_ARN"
+          else
+            aws rds failover-global-cluster \
+              --global-cluster-identifier "$GLOBAL_ID" \
+              --target-db-cluster-identifier "$TARGET_ARN"
+          fi
+
+          echo "==> Waiting for ${TARGET_ID} to become available"
+          aws rds wait db-cluster-available --region "$DR_REGION" --db-cluster-identifier "$TARGET_ID"
+
+          echo "==> Scaling DR Vault to ${COUNT}"
+          aws ecs update-service --region "$DR_REGION" \
+            --cluster "$DR_CLUSTER" --service "$DR_SERVICE" --desired-count "$COUNT" >/dev/null
+          aws ecs wait services-stable --region "$DR_REGION" \
+            --cluster "$DR_CLUSTER" --services "$DR_SERVICE"
+
+          echo "==> DR service stable. Verify /v1/sys/health == 200 from inside the VPC, then repoint clients."

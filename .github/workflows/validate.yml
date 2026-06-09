@@ -1,0 +1,37 @@
+name: validate
+
+# Tier-1 gate: formatting + HCL validation for both region roots. No AWS
+# credentials needed (init -backend=false skips the state backend).
+
+on:
+  pull_request:
+    paths:
+      - "**.tf"
+      - ".github/workflows/validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [regions/primary, regions/dr]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      - name: init (no backend)
+        run: terraform -chdir=${{ matrix.dir }} init -backend=false -input=false
+
+      - name: validate
+        run: terraform -chdir=${{ matrix.dir }} validate

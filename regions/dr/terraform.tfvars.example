@@ -1,0 +1,30 @@
+region      = "us-west-2"
+name_prefix = "vault-dr"
+
+# ---- From the primary root outputs (terraform -chdir=regions/primary output) ----
+primary_seal_key_arn       = "arn:aws:kms:us-east-1:111122223333:key/mrk-EXAMPLE0000000000000000000000"
+global_cluster_identifier  = "vault-global"
+db_credentials_secret_name = "vault-primary/aurora/master"
+
+vpc_cidr             = "10.20.0.0/16"
+public_subnet_cidrs  = ["10.20.0.0/24", "10.20.1.0/24"]
+private_subnet_cidrs = ["10.20.10.0/24", "10.20.11.0/24"]
+client_ingress_cidrs = ["10.20.0.0/16"]
+
+zone_name      = "vault.internal"
+vault_hostname = "vault.vault.internal"
+
+vault_image         = "hashicorp/vault:2.0.1"
+vault_desired_count = 0 # warm DR; raise during failover after promoting Aurora
+
+aurora_engine_version = "16.6"
+aurora_instance_class = "db.r6g.large"
+aurora_instance_count = 2
+
+deletion_protection = false # set true in production
+
+tags = {
+  Project = "vault-ha"
+  Region  = "dr"
+  Owner   = "platform"
+}

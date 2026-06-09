@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Tier-0 trust anchor for vault-ha-aws CI. Creates the GitHub Actions OIDC
+  provider and a deploy role that GitHub runners assume via OIDC (no long-lived
+  AWS credentials in GitHub). Apply once in the AWS console, then set the
+  stack's RoleArn output as the AWS_DEPLOY_ROLE_ARN repo variable.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: GitHub org or user that owns the repo (e.g. my-org).
+  GitHubRepo:
+    Type: String
+    Description: Repository name (e.g. vault-ha-aws).
+  SubjectClaimFilter:
+    Type: String
+    Default: ""
+    Description: >-
+      OIDC subject (sub) filter the role trusts. Leave blank to default to
+      repo:<GitHubOrg>/<GitHubRepo>:* (any branch/tag/environment). Narrow it,
+      e.g. repo:ORG/REPO:ref:refs/heads/main or repo:ORG/REPO:environment:prod.
+  RoleName:
+    Type: String
+    Default: vault-ha-ci
+    Description: Name of the deploy role the runners assume.
+
+Conditions:
+  UseDefaultSubject: !Equals [!Ref SubjectClaimFilter, ""]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # AWS validates this provider against its own trust store; the thumbprint
+      # is still required by the API. These are GitHub's published values.
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: vault-ha-aws CI deploy role (assumed by GitHub Actions via OIDC).
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  !If
+                    - UseDefaultSubject
+                    - !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+                    - !Ref SubjectClaimFilter
+      Policies:
+        - PolicyName: vault-ha-deploy
+          # NOTE: intentionally broad. This role provisions VPC, ECS, RDS, KMS,
+          # IAM roles, etc., and manages the Terraform state backend. Tighten to
+          # least privilege as a follow-up; scope the sub claim above to limit
+          # which refs/environments can assume it.
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Infrastructure
+                Effect: Allow
+                Action:
+                  - ec2:*
+                  - ecs:*
+                  - ecr:*
+                  - rds:*
+                  - kms:*
+                  - secretsmanager:*
+                  - route53:*
+                  - elasticloadbalancing:*
+                  - logs:*
+                  - servicediscovery:*
+                  - iam:*
+                Resource: "*"
+              - Sid: TerraformStateBackend
+                Effect: Allow
+                Action:
+                  - s3:*
+                  - dynamodb:*
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Set this as the AWS_DEPLOY_ROLE_ARN GitHub repo variable.
+    Value: !GetAtt DeployRole.Arn
+  OidcProviderArn:
+    Description: ARN of the GitHub Actions OIDC provider.
+    Value: !Ref GitHubOidcProvider
