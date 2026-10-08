@@ -1,0 +1,56 @@
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 NightLabs. All rights reserved.
+
+1. OWNERSHIP
+
+   This software, including all source code, configuration, templates,
+   documentation, and associated materials (the "Software"), is the
+   proprietary property of NightLabs ("Licensor"). The
+   Software is protected by copyright law and international treaty
+   provisions. Title, ownership rights, and all intellectual property rights
+   in and to the Software remain with Licensor at all times.
+
+2. NO LICENSE GRANTED
+
+   The Software is published for review. No license, express or implied, is
+   granted by this document or by its publication. No person or
+   entity may use, copy, reproduce, modify, adapt, merge, publish, distribute,
+   sublicense, sell, lease, transmit, display, perform, or create derivative
+   works from the Software, in whole or in part, without the prior written
+   permission of Licensor.
+
+3. THIRD-PARTY COMPONENTS
+
+   The Software interoperates with third-party software and services,
+   including but not limited to HashiCorp Vault, Terraform and its providers,
+   Amazon Web Services, PostgreSQL, and the GitHub Actions and container
+   images declared as dependencies. Such components are not covered by this
+   license and remain subject to the terms of their respective licensors.
+   Nothing in this document modifies those terms.
+
+4. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT. THE SOFTWARE
+   CREATES, MODIFIES, AND DESTROYS BILLABLE CLOUD INFRASTRUCTURE, MANAGES
+   SECRETS AND ENCRYPTION KEYS, IS NOT SECURITY HARDENED, AND IS BUILT FOR A
+   DEVELOPMENT ENVIRONMENT. IT MUST NOT BE RUN AGAINST PRODUCTION SYSTEMS,
+   AND NO CHANGE IT APPLIES MAY BE RELIED UPON WITHOUT INDEPENDENT REVIEW.
+
+5. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE, INCLUDING WITHOUT LIMITATION ANY LOSS OF SERVICE,
+   LOSS OF DATA, LOSS OF SECRETS, CLOUD SERVICE CHARGES, OR SYSTEM OUTAGE.
+
+6. TERMINATION
+
+   Any authorization to access or use the Software terminates automatically
+   upon breach of any term of this license. Upon termination, all copies of
+   the Software must be destroyed.
+
+For licensing enquiries, contact NightLabs at licensing@nightlabs.io.

@@ -1,0 +1,107 @@
+name: failover
+
+# Promotes the DR region: switch/fail the Aurora global cluster over to the DR
+# secondary, then scale up DR Vault. DR Vault auto-unseals against the now-
+# writable replicated storage using the replica KMS key.
+#
+#   switchover - planned, zero data loss; needs a healthy current primary.
+#   failover   - unplanned (primary region outage); changes not yet replicated
+#                are lost.
+#
+# The DR ALB is internal, so this workflow stops at "service stable". Verify
+# /v1/sys/health returns 200 from inside the DR VPC.
+#
+# Nothing here reads Terraform state or calls any region but the DR region, so
+# the workflow still runs when the primary region, or the region holding the
+# state bucket, is down. The resource names below are the ones the Terraform
+# defaults produce (name_prefix = "vault-dr", global cluster "vault-global").
+# Change them here if those defaults are overridden.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Promotion mode.
+        type: choice
+        default: switchover
+        options: [switchover, failover]
+      dr_desired_count:
+        description: Vault task count to scale DR up to (active + standby, not a quorum).
+        type: string
+        default: "2"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: vault-ha-deploy
+  cancel-in-progress: false
+
+env:
+  GLOBAL_ID: vault-global
+  TARGET_ID: vault-dr-aurora
+  DR_CLUSTER: vault-dr-vault
+  DR_SERVICE: vault-dr-vault
+
+jobs:
+  failover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.DR_REGION }}
+
+      - name: Promote DR
+        env:
+          DR_REGION: ${{ vars.DR_REGION }}
+          MODE: ${{ inputs.mode }}
+          COUNT: ${{ inputs.dr_desired_count }}
+        run: |
+          set -euo pipefail
+          ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+          TARGET_ARN="arn:aws:rds:${DR_REGION}:${ACCOUNT}:cluster:${TARGET_ID}"
+
+          echo "==> ${MODE} global cluster ${GLOBAL_ID} -> ${TARGET_ARN}"
+          if [ "$MODE" = "switchover" ]; then
+            aws rds switchover-global-cluster --region "$DR_REGION" \
+              --global-cluster-identifier "$GLOBAL_ID" \
+              --target-db-cluster-identifier "$TARGET_ARN"
+          else
+            # Without --allow-data-loss this call is a switchover, which
+            # needs a healthy primary and cannot complete during an outage.
+            aws rds failover-global-cluster --region "$DR_REGION" \
+              --global-cluster-identifier "$GLOBAL_ID" \
+              --target-db-cluster-identifier "$TARGET_ARN" \
+              --allow-data-loss
+          fi
+
+          # The cluster can still report "available" before the promotion
+          # starts, so wait for the global cluster to name it as the writer.
+          echo "==> Waiting for ${TARGET_ID} to become the writer (max 30 min)"
+          ELAPSED=0
+          WRITER=""
+          while [ "$ELAPSED" -lt 1800 ]; do
+            WRITER="$(aws rds describe-global-clusters --region "$DR_REGION" \
+              --global-cluster-identifier "$GLOBAL_ID" \
+              --query 'GlobalClusters[0].GlobalClusterMembers[?IsWriter==`true`].DBClusterArn | [0]' \
+              --output text)"
+            [ "$WRITER" = "$TARGET_ARN" ] && break
+            echo "    ${ELAPSED}s: writer is ${WRITER}"
+            sleep 15
+            ELAPSED=$((ELAPSED + 15))
+          done
+          if [ "$WRITER" != "$TARGET_ARN" ]; then
+            echo "::error::${TARGET_ID} did not become the writer within 30 minutes"
+            exit 1
+          fi
+          aws rds wait db-cluster-available --region "$DR_REGION" --db-cluster-identifier "$TARGET_ID"
+
+          echo "==> Scaling DR Vault to ${COUNT}"
+          aws ecs update-service --region "$DR_REGION" \
+            --cluster "$DR_CLUSTER" --service "$DR_SERVICE" --desired-count "$COUNT" >/dev/null
+          aws ecs wait services-stable --region "$DR_REGION" \
+            --cluster "$DR_CLUSTER" --services "$DR_SERVICE"
+
+          echo "==> DR service stable. Verify /v1/sys/health == 200 from inside the VPC, then repoint clients."
